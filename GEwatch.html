@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+
+	<body>
+		<div id="container"></div>
+		<div id="info"><a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> GE exercice - interactive watch </div>
+		<script type="module">
+			import * as THREE from '../build/three.module.js';
+			import { OrbitControls } from './jsm/controls/OrbitControls.js';
+			import { GUI } from './jsm/libs/lil-gui.module.min.js';
+			import { DragControls } from './jsm/controls/DragControls.js';
+			import WatchModel  from './WatchModel.js'
+			import { MathUtils } from '../build/three.module.js';
+
+			// Three.JS needed classes and controls
+			let renderer, scene, camera, raycaster, orbitControls, dragControls;
+			// Handle multiple watches in scene
+			let watches = [];
+			let watchesIndex = 0;
+			// Delta between current GMT time and selected GMT time
+			let deltaGMT = 0;
+			// Thresold for the raycaster
+			const threshold = 0.1;
+			// View gui params to create additional watch
+			let guiParams;
+			
+			init();
+			animate();
+
+			function init() {
+				
+				const container = document.getElementById( 'container' );
+				
+				watches[watchesIndex] = new WatchModel( watchesIndex, deltaGMT );
+				
+				scene = new THREE.Scene();
+
+				camera = new THREE.PerspectiveCamera( 45, window.innerWidth / window.innerHeight, 1, 10000 );
+				camera.position.set( 0, 0, 40 );
+				camera.lookAt( scene.position );
+				camera.updateMatrix();
+				
+				scene.add( watches[watchesIndex].group );
+
+				renderer = new THREE.WebGLRenderer( { antialias: true } );
+				renderer.setPixelRatio( window.devicePixelRatio );
+				renderer.setSize( window.innerWidth, window.innerHeight );
+				container.appendChild( renderer.domElement );
+
+				document.body.appendChild(renderer.domElement);
+
+				orbitControls = new OrbitControls( camera, renderer.domElement );
+				
+				dragControls = new DragControls( scene.children, camera, renderer.domElement );
+				dragControls.addEventListener( 'drag', render );
+
+				// OK for a single group... so the first watch or last remaining watch
+				dragControls.transformGroup = true;
+				
+				//Disable orbitControls when over an object with the mouse
+				dragControls.addEventListener( 'dragstart', function () { orbitControls.enabled = false; } );
+				dragControls.addEventListener( 'dragend', function () { orbitControls.enabled = true; } );
+				
+				raycaster = new THREE.Raycaster();
+				raycaster.params.Points.threshold = threshold;
+
+				window.addEventListener( 'resize', onWindowResize );
+						
+				document.addEventListener('pointerdown', onPointerDown);
+			
+				const currentDate = new Date();
+				console.log( currentDate );
+				// Get timezoneOffset returns value in minutes
+				const currentOffsetHour = -currentDate.getTimezoneOffset()/60;
+				
+				// currentGMT is used to set default value popup for new watch
+				let currentGMT;
+				if( currentOffsetHour == 0 ) currentGMT = 'GMT';
+				else if( currentOffsetHour > 0 ) currentGMT = 'GMT+' + currentOffsetHour;
+				else currentGMT = 'GMT' + currentOffsetHour;
+				
+				// Gui controls
+				guiParams = {
+					TimeZone : currentGMT,
+					// Button to add a new watch in sceene
+					AddWatch: function() {
+						console.log( 'Add a new watch');
+						watchesIndex++;
+						watches[watchesIndex] = new WatchModel(watchesIndex, deltaGMT);
+						scene.add( watches[watchesIndex].group );
+						watches[watchesIndex].update();
+					},
+					TranslationX: 0,
+					TranslationY: 0,
+					TranslationZ: 0,
+					RotationX: 0,
+					RotationY: 0,
+					RotationZ: 0,
+					Scale: 1
+				}
+				
+				const gui = new GUI();
+				gui.add( guiParams, 'TimeZone', ['GMT-11','GMT-10','GMT-9','GMT-8','GMT-7','GMT-6','GMT-5','GMT-4','GMT-3','GMT-2','GMT-1','GMT','GMT+1','GMT+2','GMT+3','GMT+4','GMT+5','GMT+6','GMT+7','GMT+8','GMT+9','GMT+10','GMT+11','GMT+12'] ).onChange( ( value ) => {
+					let selectedDeltaGMT = parseInt(value.match(/[-](\d+)/));
+					// Case of negative GMT value
+					if( selectedDeltaGMT ) deltaGMT = selectedDeltaGMT - currentOffsetHour;
+					else {
+						selectedDeltaGMT = parseInt(value.match(/[+](\d+)/));
+						if( selectedDeltaGMT ) deltaGMT = selectedDeltaGMT - currentOffsetHour;
+						else deltaGMT = -currentOffsetHour;
+						}
+					console.log( 'GMT selected:',selectedDeltaGMT,' deltaGMT:',deltaGMT );
+				} );
+				gui.add( guiParams, 'AddWatch' );
+				// Translation along x, y, z on last created watch
+				gui.add( guiParams, 'TranslationX', -100, 100).step(1).onChange( (value) =>{
+					watches[watchesIndex].group.position.x = value;} );
+				gui.add( guiParams, 'TranslationY', -100, 100).step(1).onChange( (value) =>{
+					watches[watchesIndex].group.position.y = value;} );
+				gui.add( guiParams, 'TranslationZ', -100, 100).step(1).onChange( (value) =>{
+					watches[watchesIndex].group.position.z = value;} );
+				// Rotation along x, y, z on last created watch
+				gui.add( guiParams, 'RotationX', -180, 180).step(1).onChange( (value) =>{
+					watches[watchesIndex].group.rotation.x = MathUtils.degToRad(value);} );
+				gui.add( guiParams, 'RotationY', -180, 180).step(1).onChange( (value) =>{
+					watches[watchesIndex].group.rotation.y = MathUtils.degToRad(value);} );
+				gui.add( guiParams, 'RotationZ', -180, 180).step(1).onChange( (value) =>{
+					watches[watchesIndex].group.rotation.z = MathUtils.degToRad(value);} );
+				// Uniform scaling factor along x, y ,z on last created watch
+				gui.add( guiParams, 'Scale', 1, 5).step(0.5).onChange( (value) =>{
+					watches[watchesIndex].group.scale.x = value; watches[watchesIndex].group.scale.y = value; watches[watchesIndex].group.scale.z = value; } );
+			}
+							
+			function onPointerDown(event) {
+				const coords = new THREE.Vector2(
+				(event.clientX / renderer.domElement.clientWidth) * 2 - 1,
+				-((event.clientY / renderer.domElement.clientHeight) * 2 - 1),
+				);
+
+				raycaster.setFromCamera(coords, camera);
+
+				const intersections = raycaster.intersectObjects(scene.children, true);
+				if (intersections.length > 0) {
+					const selectedObject = intersections[0].object;
+					
+					// Moniker is done by clock id and button name
+					const moniker = selectedObject.geometry.name;
+					
+					const watchId = parseInt(moniker.match(/(\d+)/));
+					const watchButtonName = moniker.match(/(\D+)/);
+					
+					// Test if valid selection
+					if( watchButtonName == null ) {
+						console.log(`unknown object was clicked!`);
+					}
+					else {
+						console.log( 'watch number:', watchId, ' and button:', watchButtonName[0], ' was clicked' );
+					
+						if( watchButtonName[0] == 'Delete' ) {
+							// console.log( 'remove watch:', watchId );
+							scene.remove( watches[watchId].group );
+						}
+						else {
+							// Send button event to the used watch
+							watches[watchId].onButtonClicked( watchButtonName[0] );
+						}
+					}
+				}
+			}
+
+			function onWindowResize() {
+
+				camera.aspect = window.innerWidth / window.innerHeight;
+				camera.updateProjectionMatrix();
+
+				renderer.setSize( window.innerWidth, window.innerHeight );
+			}
+
+			function animate() {
+
+				requestAnimationFrame( animate );
+
+				render();
+			}
+
+			function render() {
+				
+				for( let i = 0; i <= watchesIndex; i++ ) {
+			
+					watches[i].update();
+				}
+				renderer.render( scene, camera );
+			}
+			
+		</script>
+
+	</body>
+
+</html>
